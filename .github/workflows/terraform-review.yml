@@ -1,0 +1,84 @@
+name: AI Terraform Plan Review
+
+# Runs on every PR that touches .tf files
+on:
+  pull_request:
+    paths:
+      - "**.tf"
+      - "**.tfvars"
+
+jobs:
+  terraform-ai-review:
+    name: Review Terraform Plan with Claude
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Get the code
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 2. Set up Terraform
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.7.0"
+
+      # 3. Set up Python
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # 4. Install reviewer dependencies
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # 5. Initialize Terraform (downloads providers)
+      - name: Terraform Init
+        run: terraform init
+        env:
+          ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+          ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
+          ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+
+      # 6. Run terraform plan and save output to a file
+      - name: Terraform Plan
+        run: |
+          terraform plan -no-color -out=tfplan 2>&1 | tee plan.txt
+        env:
+          ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+          ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
+          ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+
+      # 7. Run Claude review and save output to a file
+      - name: AI Review with Claude
+        run: python reviewer.py plan.txt --save
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+
+      # 8. Post the review as a comment directly on the PR
+      - name: Post review as PR comment
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const files = fs.readdirSync('.').filter(f => f.endsWith('.md') && f.includes('_review_'));
+            if (files.length === 0) { console.log('No review file found'); return; }
+            const review = fs.readFileSync(files[0], 'utf8');
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `## 🤖 AI Terraform Plan Review\n\n${review}`
+            });
+
+      # 9. Upload review as downloadable artifact too
+      - name: Upload review artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-ai-review
+          path: "*_review_*.md"

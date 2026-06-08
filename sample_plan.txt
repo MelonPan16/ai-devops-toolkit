@@ -1,0 +1,73 @@
+Terraform used the selected providers to generate the following execution plan.
+Resource actions are indicated with the following symbols:
+  + create
+  ~ update in-place
+  - destroy
+
+Terraform will perform the following actions:
+
+  # aws_s3_bucket.data_lake will be created
+  + resource "aws_s3_bucket" "data_lake" {
+      + bucket = "company-data-lake-prod"
+      + acl    = "public-read"
+    }
+
+  # aws_s3_bucket_versioning.data_lake will be created
+  + resource "aws_s3_bucket_versioning" "data_lake" {
+      + versioning_configuration {
+          + status = "Disabled"
+        }
+    }
+
+  # aws_security_group.web will be created
+  + resource "aws_security_group" "web" {
+      + name        = "web-sg"
+      + description = "Web security group"
+      + ingress {
+          + from_port   = 0
+          + to_port     = 65535
+          + protocol    = "tcp"
+          + cidr_blocks = ["0.0.0.0/0"]
+        }
+      + egress {
+          + from_port   = 0
+          + to_port     = 0
+          + protocol    = "-1"
+          + cidr_blocks = ["0.0.0.0/0"]
+        }
+    }
+
+  # aws_instance.app_server will be created
+  + resource "aws_instance" "app_server" {
+      + ami                    = "ami-0c55b159cbfafe1f0"
+      + instance_type          = "t3.2xlarge"
+      + key_name               = "prod-key"
+      + user_data              = "SENSITIVE_DB_PASSWORD=Admin1234!"
+      + associate_public_ip_address = true
+    }
+
+  # aws_db_instance.postgres will be created
+  + resource "aws_db_instance" "postgres" {
+      + engine               = "postgres"
+      + instance_class       = "db.r5.4xlarge"
+      + allocated_storage    = 500
+      + publicly_accessible  = true
+      + skip_final_snapshot  = true
+      + storage_encrypted    = false
+    }
+
+  # aws_iam_role.lambda_exec will be updated
+  ~ resource "aws_iam_role" "lambda_exec" {
+      ~ assume_role_policy = jsonencode({
+          + Statement = [
+              + {
+                  + Action    = "*"
+                  + Effect    = "Allow"
+                  + Principal = "*"
+                  + Resource  = "*"
+                }
+            ]
+        })
+    }
+
+Plan: 5 to add, 1 to change, 0 to destroy.
