@@ -17,6 +17,27 @@ load_dotenv()
 sys.stdout.reconfigure(encoding="utf-8")
 
 
+def get_api_key(keyvault_url: str = None) -> str:
+    """
+    Gets the Anthropic API key.
+    - If --keyvault is passed: reads from Azure Key Vault using DefaultAzureCredential
+      (works with Managed Identity on Azure, or 'az login' on a laptop)
+    - Otherwise: reads from ANTHROPIC_API_KEY environment variable
+    """
+    if keyvault_url:
+        from azure.identity import DefaultAzureCredential
+        from azure.keyvault.secrets import SecretClient
+        credential = DefaultAzureCredential()
+        client = SecretClient(vault_url=keyvault_url, credential=credential)
+        return client.get_secret("ANTHROPIC-API-KEY").value
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        print("Error: ANTHROPIC_API_KEY not set. Use --keyvault or set the env var.")
+        sys.exit(1)
+    return api_key
+
+
 REVIEW_PROMPT = """You are a senior DevOps/Cloud security engineer reviewing a Terraform plan.
 Analyze the plan below and return a structured review with these sections:
 
@@ -51,12 +72,8 @@ def load_plan(path: str) -> str:
     return p.read_text(encoding="utf-8")
 
 
-def review(plan_text: str) -> str:
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
-        print("Error: ANTHROPIC_API_KEY environment variable not set.")
-        sys.exit(1)
-
+def review(plan_text: str, keyvault_url: str = None) -> str:
+    api_key = get_api_key(keyvault_url)
     client = anthropic.Anthropic(api_key=api_key)
     message = client.messages.create(
         model="claude-sonnet-4-6",
@@ -81,12 +98,13 @@ def main():
     )
     parser.add_argument("plan_file", help="Path to terraform plan output (.txt)")
     parser.add_argument("--save", action="store_true", help="Save report as a markdown file")
+    parser.add_argument("--keyvault", help="Azure Key Vault URL (e.g. https://my-vault.vault.azure.net)", default=None)
     args = parser.parse_args()
 
     plan_text = load_plan(args.plan_file)
 
     print("Analyzing Terraform plan with Claude AI...\n")
-    report = review(plan_text)
+    report = review(plan_text, keyvault_url=args.keyvault)
 
     print("=" * 60)
     print("  AI TERRAFORM PLAN REVIEW")
